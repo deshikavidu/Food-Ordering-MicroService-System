@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+.vscode/
+.DS_Store
+pip-log.txt
+pip-delete-this-directory.txt
+*.db
+*.pid
