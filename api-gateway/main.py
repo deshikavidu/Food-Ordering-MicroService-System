@@ -1,6 +1,206 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, List
 import requests
+
+# ========================
+# Pydantic Models for Request Bodies
+# ========================
+
+# User Models
+class UserRegister(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: str
+    address: str
+    
+    class Config:
+        example = {
+            "full_name": "John Doe",
+            "email": "john@example.com",
+            "password": "password123",
+            "phone": "1234567890",
+            "address": "123 Main St"
+        }
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+    
+    class Config:
+        example = {
+            "email": "john@example.com",
+            "password": "password123"
+        }
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    
+    class Config:
+        example = {
+            "full_name": "John Updated",
+            "phone": "9876543210"
+        }
+
+
+# Restaurant Models
+class RestaurantCreate(BaseModel):
+    name: str
+    location: str
+    contact: str
+    cuisine: str
+    
+    class Config:
+        example = {
+            "name": "MEE Hub",
+            "location": "Colombo",
+            "contact": "0772234567",
+            "cuisine": "Sri Lankan"
+        }
+
+
+class RestaurantUpdate(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
+    contact: Optional[str] = None
+    cuisine: Optional[str] = None
+
+
+class MenuItemCreate(BaseModel):
+    item_name: str
+    description: str
+    price: float
+    
+    class Config:
+        example = {
+            "item_name": "Chocolate milkshake",
+            "description": "Milky and tasty",
+            "price": 450.00
+        }
+
+
+class MenuItemUpdate(BaseModel):
+    item_name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+
+
+# Order Models
+class OrderItem(BaseModel):
+    item_id: int
+    item_name: str
+    quantity: int
+    price: float
+    
+    class Config:
+        example = {
+            "item_id": 101,
+            "item_name": "Chicken Kottu",
+            "quantity": 2,
+            "price": 1200.0
+        }
+
+
+class OrderCreate(BaseModel):
+    user_id: int
+    restaurant_id: int
+    items: List[OrderItem]
+    total_amount: float
+    
+    class Config:
+        example = {
+            "user_id": 1,
+            "restaurant_id": 1,
+            "items": [
+                {
+                    "item_id": 101,
+                    "item_name": "Chicken Kottu",
+                    "quantity": 2,
+                    "price": 1200.0
+                },
+                {
+                    "item_id": 102,
+                    "item_name": "Chocolate milkshake",
+                    "quantity": 1,
+                    "price": 450.0
+                }
+            ],
+            "total_amount": 2850.0
+        }
+
+
+class OrderUpdate(BaseModel):
+    status: Optional[str] = None
+    
+    class Config:
+        example = {
+            "status": "Confirmed"
+        }
+
+
+# Payment Models
+class PaymentCreate(BaseModel):
+    order_id: int
+    amount: float
+    method: str
+    
+    class Config:
+        example = {
+            "order_id": 1,
+            "amount": 2400.0,
+            "method": "Card"
+        }
+
+
+class PaymentUpdate(BaseModel):
+    status: Optional[str] = None
+    
+    class Config:
+        example = {
+            "status": "Refunded"
+        }
+
+
+# Delivery Models
+class DeliveryCreate(BaseModel):
+    order_id: int
+    driver_name: str
+    status: str = "Preparing"
+    estimated_time: Optional[str] = None
+    
+    class Config:
+        example = {
+            "order_id": 1,
+            "driver_name": "John Smith",
+            "status": "Preparing",
+            "estimated_time": "30 minutes"
+        }
+
+
+class DeliveryUpdate(BaseModel):
+    status: Optional[str] = None
+    
+    class Config:
+        example = {
+            "status": "Out for Delivery"
+        }
+
+
+# Generic Request Body for flexibility
+class GenericRequest(BaseModel):
+    data: dict
+    
+    class Config:
+        example = {
+            "data": {}
+        }
 
 tags_metadata = [
     {
@@ -59,34 +259,49 @@ def root():
 # -------------------------
 def forward_request(method: str, url: str, body=None):
     try:
+        # Send request to microservice
         if method == "GET":
-            response = requests.get(url)
+            response = requests.get(url, timeout=5)
         elif method == "POST":
-            response = requests.post(url, json=body)
+            response = requests.post(url, json=body, timeout=5)
         elif method == "PUT":
-            response = requests.put(url, json=body)
+            response = requests.put(url, json=body, timeout=5)
         elif method == "DELETE":
-            response = requests.delete(url)
+            response = requests.delete(url, timeout=5)
         else:
             return JSONResponse(
                 status_code=405,
                 content={"error": "Method not allowed"}
             )
 
+        # Try to parse response as JSON, if it fails, return text
+        try:
+            response_data = response.json()
+        except:
+            response_data = {"message": response.text} if response.text else {}
+
         return JSONResponse(
             status_code=response.status_code,
-            content=response.json()
+            content=response_data
         )
 
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error to {url}: {str(e)}")
         return JSONResponse(
             status_code=503,
-            content={"error": f"Service unavailable for URL: {url}"}
+            content={"error": f"Service unavailable at {url}"}
+        )
+    except requests.exceptions.Timeout:
+        print(f"Timeout connecting to {url}")
+        return JSONResponse(
+            status_code=504,
+            content={"error": f"Service timeout at {url}"}
         )
     except Exception as e:
+        print(f"Error in forward_request: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": str(e)}
+            content={"error": f"Internal error: {str(e)}"}
         )
 
 
@@ -94,14 +309,14 @@ def forward_request(method: str, url: str, body=None):
 # USER SERVICE ROUTES
 # =========================
 @app.post("/users/register", tags=["User Service"], summary="Register User")
-async def register_user(request: Request):
-    body = await request.json()
+def register_user(user: UserRegister):
+    body = user.dict()
     return forward_request("POST", f"{USER_SERVICE}/users/register", body)
 
 
 @app.post("/users/login", tags=["User Service"], summary="Login User")
-async def login_user(request: Request):
-    body = await request.json()
+def login_user(user: UserLogin):
+    body = user.dict()
     return forward_request("POST", f"{USER_SERVICE}/users/login", body)
 
 
@@ -116,8 +331,8 @@ def get_user_by_id(id: int):
 
 
 @app.put("/users/{id}", tags=["User Service"], summary="Update User")
-async def update_user(id: int, request: Request):
-    body = await request.json()
+def update_user(id: int, user: UserUpdate):
+    body = user.dict(exclude_none=True)
     return forward_request("PUT", f"{USER_SERVICE}/users/{id}", body)
 
 
@@ -135,8 +350,8 @@ def get_restaurants():
 
 
 @app.post("/restaurants", tags=["Restaurant Service"], summary="Create Restaurant")
-async def create_restaurant(request: Request):
-    body = await request.json()
+def create_restaurant(restaurant: RestaurantCreate):
+    body = restaurant.dict()
     return forward_request("POST", f"{RESTAURANT_SERVICE}/restaurants", body)
 
 
@@ -146,8 +361,8 @@ def get_restaurant_by_id(id: int):
 
 
 @app.put("/restaurants/{id}", tags=["Restaurant Service"], summary="Update Restaurant")
-async def update_restaurant(id: int, request: Request):
-    body = await request.json()
+def update_restaurant(id: int, restaurant: RestaurantUpdate):
+    body = restaurant.dict(exclude_none=True)
     return forward_request("PUT", f"{RESTAURANT_SERVICE}/restaurants/{id}", body)
 
 
@@ -157,8 +372,8 @@ def delete_restaurant(id: int):
 
 
 @app.post("/restaurants/{id}/menu", tags=["Restaurant Service"], summary="Add Menu Item")
-async def add_menu_item(id: int, request: Request):
-    body = await request.json()
+def add_menu_item(id: int, item: MenuItemCreate):
+    body = item.dict()
     return forward_request("POST", f"{RESTAURANT_SERVICE}/restaurants/{id}/menu", body)
 
 
@@ -172,8 +387,8 @@ def get_menu(id: int):
     tags=["Restaurant Service"],
     summary="Update Menu Item"
 )
-async def update_menu_item(restaurant_id: int, item_id: int, request: Request):
-    body = await request.json()
+def update_menu_item(restaurant_id: int, item_id: int, item: MenuItemUpdate):
+    body = item.dict(exclude_none=True)
     return forward_request(
         "PUT",
         f"{RESTAURANT_SERVICE}/restaurants/{restaurant_id}/menu/{item_id}",
@@ -197,8 +412,8 @@ def delete_menu_item(restaurant_id: int, item_id: int):
 # ORDER SERVICE ROUTES
 # =========================
 @app.post("/orders", tags=["Order Service"], summary="Create Order")
-async def create_order(request: Request):
-    body = await request.json()
+def create_order(order: OrderCreate):
+    body = order.dict()
     return forward_request("POST", f"{ORDER_SERVICE}/orders", body)
 
 
@@ -213,8 +428,8 @@ def get_order_by_id(id: int):
 
 
 @app.put("/orders/{id}", tags=["Order Service"], summary="Update Order")
-async def update_order(id: int, request: Request):
-    body = await request.json()
+def update_order(id: int, order: OrderUpdate):
+    body = order.dict(exclude_none=True)
     return forward_request("PUT", f"{ORDER_SERVICE}/orders/{id}", body)
 
 
@@ -227,8 +442,8 @@ def delete_order(id: int):
 # PAYMENT SERVICE ROUTES
 # =========================
 @app.post("/payments", tags=["Payment Service"], summary="Create Payment")
-async def create_payment(request: Request):
-    body = await request.json()
+def create_payment(payment: PaymentCreate):
+    body = payment.dict()
     return forward_request("POST", f"{PAYMENT_SERVICE}/payments", body)
 
 
@@ -243,8 +458,8 @@ def get_payment_by_id(id: int):
 
 
 @app.put("/payments/{id}", tags=["Payment Service"], summary="Update Payment")
-async def update_payment(id: int, request: Request):
-    body = await request.json()
+def update_payment(id: int, payment: PaymentUpdate):
+    body = payment.dict(exclude_none=True)
     return forward_request("PUT", f"{PAYMENT_SERVICE}/payments/{id}", body)
 
 
@@ -257,8 +472,8 @@ def delete_payment(id: int):
 # DELIVERY SERVICE ROUTES
 # =========================
 @app.post("/deliveries", tags=["Delivery Service"], summary="Create Delivery")
-async def create_delivery(request: Request):
-    body = await request.json()
+def create_delivery(delivery: DeliveryCreate):
+    body = delivery.dict()
     return forward_request("POST", f"{DELIVERY_SERVICE}/deliveries", body)
 
 
@@ -273,8 +488,8 @@ def get_delivery_by_id(id: int):
 
 
 @app.put("/deliveries/{id}", tags=["Delivery Service"], summary="Update Delivery")
-async def update_delivery(id: int, request: Request):
-    body = await request.json()
+def update_delivery(id: int, delivery: DeliveryUpdate):
+    body = delivery.dict(exclude_none=True)
     return forward_request("PUT", f"{DELIVERY_SERVICE}/deliveries/{id}", body)
 
 
